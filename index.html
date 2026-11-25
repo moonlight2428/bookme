@@ -1,0 +1,2507 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+  <title>Moonlight Book — Pembuat & Pembaca Flip Book Interaktif</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Plus Jakarta Sans, Playfair Display & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- PDF.js CDN untuk konversi file PDF ukuran apa pun menjadi halaman Flip Book -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- QRCode.js CDN untuk generasi QR Code dinamis -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- React 18 & Babel Standalone -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+            serif: ['Playfair Display', 'serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    html, body, #root {
+      height: 100dvh;
+      width: 100vw;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      background-color: #f8fafc;
+    }
+
+    /* Perspektif 3D untuk efek Flip, Geser, & Coverflow */
+    .flipbook-stage {
+      perspective: 2400px;
+      transform-style: preserve-3d;
+    }
+
+    .book-wrapper {
+      transform-style: preserve-3d;
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s ease, height 0.35s ease;
+    }
+
+    /* Lembaran 3D Flip */
+    .flip-leaf {
+      position: absolute;
+      top: 0;
+      width: 50%;
+      height: 100%;
+      transform-style: preserve-3d;
+      transition: transform 0.65s cubic-bezier(0.645, 0.045, 0.355, 1.000);
+      pointer-events: none;
+      z-index: 30;
+    }
+
+    .flip-leaf.single-mode {
+      width: 100%;
+      left: 0;
+    }
+
+    .flip-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      overflow: hidden;
+    }
+
+    .flip-face-back {
+      transform: rotateY(180deg);
+    }
+
+    /* Animasi Geser (Slide Transition) */
+    @keyframes slideNextAnim {
+      from { opacity: 0.4; transform: translateX(36px) scale(0.98); }
+      to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    @keyframes slidePrevAnim {
+      from { opacity: 0.4; transform: translateX(-36px) scale(0.98); }
+      to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    .anim-slide-next {
+      animation: slideNextAnim 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .anim-slide-prev {
+      animation: slidePrevAnim 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Bayangan lipatan buku & kilau */
+    .spine-shadow-left {
+      background: linear-gradient(to right, rgba(0,0,0,0) 86%, rgba(15,23,42,0.06) 94%, rgba(15,23,42,0.16) 100%);
+    }
+    .spine-shadow-right {
+      background: linear-gradient(to left, rgba(0,0,0,0) 86%, rgba(15,23,42,0.05) 94%, rgba(15,23,42,0.12) 100%);
+    }
+    .page-sheen {
+      background: linear-gradient(105deg, transparent 25%, rgba(255,255,255,0.45) 48%, rgba(255,255,255,0.1) 60%, transparent 75%);
+    }
+
+    /* Range Slider Scrubber */
+    input[type="range"].book-scrubber {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type="range"].book-scrubber::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+    }
+    input[type="range"].book-scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 18px;
+      width: 18px;
+      border-radius: 999px;
+      background: var(--accent-color, #0284c7);
+      border: 2.5px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(2,132,199,0.35);
+      margin-top: -6px;
+      transition: transform 0.15s ease;
+    }
+    input[type="range"].book-scrubber::-webkit-slider-thumb:active {
+      transform: scale(1.25);
+    }
+
+    /* Scrollbar halus */
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.45);
+      border-radius: 999px;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .animate-pop {
+      animation: popIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Tampilan Home & workspace yang lebih premium */
+    body {
+      background:
+        radial-gradient(circle at 12% 12%, rgba(99, 102, 241, 0.12), transparent 25rem),
+        radial-gradient(circle at 88% 88%, rgba(251, 146, 60, 0.10), transparent 22rem),
+        #f8fafc;
+    }
+
+    header.z-30 {
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+    }
+
+    aside.z-20 {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+      box-shadow: 18px 0 45px rgba(15, 23, 42, 0.07);
+    }
+
+    main.flipbook-stage {
+      background:
+        radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.95) 0, rgba(255, 255, 255, 0) 32rem),
+        radial-gradient(circle at 12% 85%, rgba(99, 102, 241, 0.08), transparent 18rem);
+    }
+
+    .book-wrapper,
+    main.flipbook-stage > div > div[class*="rounded-2xl"] {
+      filter: drop-shadow(0 22px 28px rgba(30, 41, 59, 0.14));
+    }
+
+    footer.z-30 {
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.05);
+    }
+
+    @media (max-width: 767px) {
+      header.z-30 {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      aside.z-20 {
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Parameter Injeksi dari Google Apps Script (Aman jika dibuka lokal tanpa GAS) -->
+  <script>
+    window.GAS_PARAMS = {
+      bookId: "<?= typeof initialBookId !== 'undefined' ? initialBookId : '' ?>",
+      page: "<?= typeof initialPage !== 'undefined' ? initialPage : '1' ?>",
+      mode: "<?= typeof initialMode !== 'undefined' ? initialMode : 'studio' ?>"
+    };
+  </script>
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // Konfigurasi Worker PDF.js
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    /* ============================================================================
+       1. SINTESIS EFEK SUARA MEMBALIK KERTAS (WEB AUDIO API - TANPA URL EKSTERNAL)
+    ============================================================================ */
+    class PaperAudioEngine {
+      constructor() {
+        this.ctx = null;
+      }
+      play(muted = false) {
+        if (muted) return;
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          if (!this.ctx) this.ctx = new AudioCtx();
+          if (this.ctx.state === 'suspended') this.ctx.resume();
+
+          const duration = 0.24;
+          const sampleRate = this.ctx.sampleRate;
+          const frameCount = Math.floor(sampleRate * duration);
+          const buffer = this.ctx.createBuffer(1, frameCount, sampleRate);
+          const data = buffer.getChannelData(0);
+
+          for (let i = 0; i < frameCount; i++) {
+            const t = i / frameCount;
+            const env = Math.sin(t * Math.PI) * Math.pow(1 - t, 0.55);
+            data[i] = (Math.random() * 2 - 1) * env * 0.32;
+          }
+
+          const src = this.ctx.createBufferSource();
+          src.buffer = buffer;
+
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(1050, this.ctx.currentTime);
+          filter.frequency.exponentialRampToValueAtTime(2200, this.ctx.currentTime + duration * 0.6);
+          filter.Q.value = 1.3;
+
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(0.01, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.4, this.ctx.currentTime + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+
+          src.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+          src.start();
+        } catch (e) {}
+      }
+    }
+    const paperAudio = new PaperAudioEngine();
+
+    /* ============================================================================
+       2. DATA BUKU DIGITAL CERAH BAWAAN + CONTOH WIDGET INTERAKTIF
+    ============================================================================ */
+    const DEFAULT_BRANDING = {
+      title: 'Katalog Inovasi & Majalah Kreatif 2026',
+      subtitle: 'Publikasi Digital Interaktif • Desain Cerah & Modern',
+      publisher: 'Moonlight Book',
+      logoText: 'MB',
+      logoUrl: '',
+      primaryColor: '#4f46e5', // Indigo Premium
+      accentColor: '#fb7185',  // Coral Hangat
+      iconStyle: 'rounded',    // 'rounded' | 'pill' | 'sharp'
+      showPageNumbers: true,
+      pageNumberFormat: 'Hal. {n} / {total}', // 'Hal. {n} / {total}' | '{n} dari {total}' | '#{n}'
+      transitionEffect: 'flip', // 'flip' | 'slide' | 'coverflow'
+      bgStyle: 'bright-sky',    // 'bright-sky' | 'warm-cream' | 'mint-breeze' | 'dark-night'
+    };
+
+    const DEFAULT_PAGES = [
+      {
+        id: 1,
+        type: 'cover',
+        chapter: 'Sampul Utama',
+        badge: 'PUBLIKASI INTERAKTIF • 2026',
+        title: 'Katalog Inovasi & Majalah Kreatif Nusantara',
+        subtitle: 'Eksplorasi desain produk berkelanjutan, wisata bahari, dan ekosistem kreatif dengan pengalaman baca interaktif.',
+        author: 'Tim Redaksi Moonlight Book',
+        widgets: [
+          {
+            id: 'w-cover-1',
+            type: 'link',
+            label: 'Kunjungi Portal Resmi',
+            url: 'https://www.google.com',
+            x: 50,
+            y: 84,
+            color: '#0284c7',
+          },
+        ],
+      },
+      {
+        id: 2,
+        type: 'editorial',
+        chapter: 'Kata Sambutan & Audio',
+        kicker: 'EDISI CERAH • INTERAKTIF',
+        title: 'Selamat Datang di Era Baru Publikasi Digital',
+        lead: 'Ubah dokumen PDF statis menjadi pengalaman membaca yang hidup dengan animasi membalik halaman, audio narasi, video, hingga formulir interaktif.',
+        paragraphs: [
+          'Pembaca modern mengakses informasi melalui ponsel pintar maupun layar lebar. Setiap halaman pada publikasi ini dirancang adaptif, tajam, dan mendukung interaksi sentuh secara langsung.',
+          'Ketuk tombol widget interaktif di halaman ini untuk mendengarkan sambutan audio atau menjelajahi fitur interaktif lainnya.'
+        ],
+        factTitle: 'Tips Interaktif',
+        factText: 'Gunakan tab "Widget" di panel Studio untuk menambahkan tombol tautan, video, audio, atau formulir survei di halaman mana pun!',
+        illustration: 'sunrise',
+        widgets: [
+          {
+            id: 'w-p2-audio',
+            type: 'audio',
+            label: 'Putar Narasi Pembuka',
+            url: '',
+            x: 50,
+            y: 78,
+            color: '#0d9488',
+          },
+        ],
+      },
+      {
+        id: 3,
+        type: 'toc',
+        chapter: 'Daftar Isi Interaktif',
+        kicker: 'NAVIGASI CEPAT',
+        title: 'Daftar Isi Publikasi',
+        subtitle: 'Ketuk salah satu topik di bawah untuk melompat langsung ke halaman terkait.',
+        items: [
+          { page: 1, title: 'Sampul Utama', desc: 'Katalog Inovasi & Majalah Kreatif 2026' },
+          { page: 2, title: 'Kata Sambutan & Audio', desc: 'Pengantar publikasi digital interaktif' },
+          { page: 4, title: 'Bab 1 • Desain Produk Cerah', desc: 'Estetika minimalis & material ramah lingkungan' },
+          { page: 5, title: 'Bab 2 • Galeri Video & Tur Virtual', desc: 'Sematkan video presentasi langsung di halaman' },
+          { page: 6, title: 'Bab 3 • Formulir Pemesanan & Survei', desc: 'Kumpulkan respons pembaca tanpa keluar buku' },
+          { page: 7, title: 'Bab 4 • Ekosistem & Sematan Web', desc: 'Integrasi peta, kalender, dan katalog web' },
+          { page: 8, title: 'Sampul Belakang & Kontak', desc: 'Bagikan publikasi via QR Code & Link' },
+        ],
+        widgets: [],
+      },
+      {
+        id: 4,
+        type: 'editorial',
+        chapter: 'Bab 1 • Desain Produk Cerah',
+        kicker: 'KATALOG UNGGULAN 01',
+        title: 'Koleksi Furnitur Rotan & Bambu Modern',
+        lead: 'Perpaduan pengerjaan tangan perajin lokal dengan siluet skandinavia-tropis yang ringan dan cerah.',
+        paragraphs: [
+          'Setiap unit kursi santai dirancang ergonomis untuk ruang keluarga modern maupun teras resor tepi pantai. Finishing berbasis air (water-based) menjaga tekstur alami serat tetap bernapas.',
+          'Klik tombol katalog di bawah untuk melihat spesifikasi ukuran dan pilihan warna pelapis kain.'
+        ],
+        factTitle: 'Garansi & Sertifikasi',
+        factText: '100% bahan baku legal bersertifikat SVLK dengan ketahanan cuaca tropis hingga 10 tahun.',
+        illustration: 'product',
+        widgets: [
+          {
+            id: 'w-p4-link',
+            type: 'link',
+            label: 'Lihat Spesifikasi Produk ↗',
+            url: 'https://www.google.com/search?q=desain+furnitur+rotan+modern',
+            x: 50,
+            y: 80,
+            color: '#ea580c',
+          },
+        ],
+      },
+      {
+        id: 5,
+        type: 'editorial',
+        chapter: 'Bab 2 • Video Presentasi',
+        kicker: 'MULTIMEDIA TERINTEGRASI',
+        title: 'Menghidupkan Cerita Lewat Video Interaktif',
+        lead: 'Sisipkan video demonstrasi produk, profil perusahaan, atau dokumenter singkat langsung di atas halaman buku.',
+        paragraphs: [
+          'Audiens tidak perlu membuka tab peramban baru untuk menonton presentasi Anda. Cukup ketuk widget video untuk memutar tayangan dalam jendela pemutar instan.',
+          'Mendukung tautan YouTube maupun file video MP4 langsung.'
+        ],
+        factTitle: 'Daya Tarik Tinggi',
+        factText: 'Publikasi dengan elemen video meningkatkan waktu baca rata-rata hingga 2,8 kali lebih lama.',
+        illustration: 'video',
+        widgets: [
+          {
+            id: 'w-p5-video',
+            type: 'video',
+            label: '▶ Tonton Video Showcase',
+            url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+            x: 50,
+            y: 78,
+            color: '#dc2626',
+          },
+        ],
+      },
+      {
+        id: 6,
+        type: 'editorial',
+        chapter: 'Bab 3 • Formulir Interaktif',
+        kicker: 'INTERAKSI AUDIENS',
+        title: 'Formulir Pemesanan & Pendaftaran Cepat',
+        lead: 'Ubah pembaca pasif menjadi pelanggan atau peserta acara melalui widget formulir interaktif di dalam halaman.',
+        paragraphs: [
+          'Baik untuk meminta penawaran harga katalog, mendaftar webinar, maupun mengisi kuesioner kepuasan pembaca, semuanya tersedia dalam satu ketukan.',
+          'Anda juga dapat menautkan Google Forms milik Anda sendiri melalui panel Studio.'
+        ],
+        factTitle: 'Konversi Langsung',
+        factText: 'Setiap halaman dapat memiliki tombol CTA (Call-to-Action) yang disesuaikan dengan kebutuhan kampanye.',
+        illustration: 'form',
+        widgets: [
+          {
+            id: 'w-p6-form',
+            type: 'form',
+            label: 'Isi Formulir Minat / Katalog',
+            url: '',
+            x: 50,
+            y: 79,
+            color: '#7c3aed',
+          },
+        ],
+      },
+      {
+        id: 7,
+        type: 'editorial',
+        chapter: 'Bab 4 • Sematan Web',
+        kicker: 'EKOSISTEM TERHUBUNG',
+        title: 'Sematkan Peta Lokasi & Aplikasi Web',
+        lead: 'Hubungkan katalog digital Anda dengan peta lokasi pameran, sistem reservasi, atau halaman toko daring.',
+        paragraphs: [
+          'Widget Sematan Web (Web Embed) membuka halaman eksternal secara mulus di dalam modal pembaca sehingga pembaca tetap berada di dalam ekosistem buku digital Anda.',
+          'Sangat ideal untuk brosur properti, panduan wisata, maupun laporan tahunan interaktif.'
+        ],
+        factTitle: 'Siap Dibagikan',
+        factText: 'Gunakan fitur Bagikan di pojok kanan atas untuk mendapatkan QR Code & kode embed website.',
+        illustration: 'globe',
+        widgets: [
+          {
+            id: 'w-p7-embed',
+            type: 'embed',
+            label: 'Buka Peta & Direktori Web',
+            url: 'https://www.openstreetmap.org/export/embed.html?bbox=106.60%2C-6.35%2C106.75%2C-6.25&layer=mapnik',
+            x: 50,
+            y: 79,
+            color: '#0284c7',
+          },
+        ],
+      },
+      {
+        id: 8,
+        type: 'backcover',
+        chapter: 'Sampul Belakang',
+        badge: 'TERIMA KASIH TELAH MEMBACA',
+        title: 'Bagikan & Terbitkan Buku Digital Anda Sekarang',
+        summary: 'Dibuat dengan Moonlight Book. Konversikan PDF ukuran apa pun, tambahkan widget interaktif, dan bagikan ke seluruh dunia lewat tautan & kode QR.',
+        contact: 'halo@lontarstudio.id • www.lontarstudio.id',
+        widgets: [],
+      },
+    ];
+
+    /* ============================================================================
+       3. ILUSTRASI VEKTOR CERAH & MODERN (SVG INLINE)
+    ============================================================================ */
+    function MoonlightBookLogo({ className = 'w-8 h-8', title = true }) {
+      return (
+        <svg
+          viewBox="0 0 48 48"
+          className={className}
+          role={title ? 'img' : undefined}
+          aria-label={title ? 'Moonlight Book' : undefined}
+        >
+          <defs>
+            <linearGradient id="moonGradient" x1="8" y1="4" x2="40" y2="44" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#fef08a" />
+              <stop offset="1" stopColor="#fb7185" />
+            </linearGradient>
+          </defs>
+          <rect width="48" height="48" rx="12" fill="#312e81" />
+          <path
+            d="M29.5 8.5c-7.1 1.3-11.7 8.1-10.4 15.2 1.1 6.1 6.4 10.5 12.5 10.5 2.1 0 4.1-.5 5.9-1.5-2.2 4.5-6.8 7.6-12.1 7.6-7.4 0-13.4-6-13.4-13.4 0-8.4 7.5-15 17.5-18.4Z"
+            fill="url(#moonGradient)"
+          />
+          <path d="M14 34.5c5.5-1.2 10.6-.2 14.7 3.1v5c-4.1-2.8-9.2-3.7-14.7-2.5v-5.6Z" fill="#fff" />
+          <path d="M28.7 37.6c4.1-3.3 9.2-4.3 14.7-3.1v5.6c-5.5-1.2-10.6-.3-14.7 2.5v-5Z" fill="#ddd6fe" />
+          <path d="M28.7 37.6v5" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    function BrightIllustration({ type, primaryColor = '#0284c7', accentColor = '#f59e0b' }) {
+      switch (type) {
+        case 'sunrise':
+          return (
+            <svg viewBox="0 0 340 125" className="w-full h-24 sm:h-28 rounded-xl shadow-inner">
+              <defs>
+                <linearGradient id="skySun" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#e0f2fe" />
+                  <stop offset="55%" stopColor="#fef3c7" />
+                  <stop offset="100%" stopColor="#fde68a" />
+                </linearGradient>
+              </defs>
+              <rect width="340" height="125" fill="url(#skySun)" />
+              <circle cx="255" cy="44" r="24" fill={accentColor} opacity="0.85" />
+              <path d="M0 95 Q85 65 170 90 T340 80 L340 125 L0 125 Z" fill={primaryColor} opacity="0.22" />
+              <path d="M0 105 Q110 85 220 102 T340 94 L340 125 L0 125 Z" fill={primaryColor} opacity="0.4" />
+              <rect x="42" y="34" width="68" height="48" rx="8" fill="#ffffff" stroke={primaryColor} strokeWidth="2" />
+              <line x1="54" y1="48" x2="96" y2="48" stroke={primaryColor} strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="54" y1="58" x2="86" y2="58" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+              <line x1="54" y1="68" x2="92" y2="68" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          );
+        case 'product':
+          return (
+            <svg viewBox="0 0 340 125" className="w-full h-24 sm:h-28 rounded-xl bg-amber-50/90 border border-amber-200/60">
+              <circle cx="95" cy="62" r="38" fill="#fef3c7" />
+              <path d="M72 78 C72 45, 118 45, 118 78 Z" fill="none" stroke="#d97706" strokeWidth="3" />
+              <line x1="78" y1="78" x2="72" y2="98" stroke="#b45309" strokeWidth="3" strokeLinecap="round" />
+              <line x1="112" y1="78" x2="118" y2="98" stroke="#b45309" strokeWidth="3" strokeLinecap="round" />
+              <rect x="165" y="34" width="130" height="58" rx="10" fill="#ffffff" stroke="#fde68a" strokeWidth="2" />
+              <circle cx="192" cy="63" r="14" fill="#ffedd5" />
+              <line x1="216" y1="53" x2="276" y2="53" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="216" y1="65" x2="262" y2="65" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
+              <line x1="216" y1="76" x2="248" y2="76" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          );
+        case 'video':
+          return (
+            <svg viewBox="0 0 340 125" className="w-full h-24 sm:h-28 rounded-xl bg-rose-50/90 border border-rose-200/60">
+              <rect x="65" y="20" width="210" height="85" rx="14" fill="#ffffff" stroke="#fecdd3" strokeWidth="2" />
+              <circle cx="170" cy="62" r="24" fill="#f43f5e" opacity="0.16" />
+              <circle cx="170" cy="62" r="17" fill="#e11d48" />
+              <polygon points="166,54 179,62 166,70" fill="#ffffff" />
+            </svg>
+          );
+        case 'form':
+          return (
+            <svg viewBox="0 0 340 125" className="w-full h-24 sm:h-28 rounded-xl bg-violet-50/90 border border-violet-200/60">
+              <rect x="75" y="18" width="190" height="89" rx="12" fill="#ffffff" stroke="#ddd6fe" strokeWidth="2" />
+              <rect x="94" y="32" width="152" height="14" rx="4" fill="#f5f3ff" stroke="#c4b5fd" strokeWidth="1.5" />
+              <rect x="94" y="54" width="152" height="14" rx="4" fill="#f5f3ff" stroke="#c4b5fd" strokeWidth="1.5" />
+              <rect x="94" y="76" width="84" height="18" rx="6" fill="#7c3aed" />
+            </svg>
+          );
+        default:
+          return (
+            <svg viewBox="0 0 340 125" className="w-full h-24 sm:h-28 rounded-xl bg-sky-50/90 border border-sky-200/60">
+              <circle cx="170" cy="62" r="36" fill="none" stroke={primaryColor} strokeWidth="2" />
+              <ellipse cx="170" cy="62" rx="16" ry="36" fill="none" stroke={primaryColor} strokeWidth="1.5" />
+              <line x1="134" y1="62" x2="206" y2="62" stroke={primaryColor} strokeWidth="1.5" />
+              <circle cx="192" cy="48" r="5" fill={accentColor} />
+            </svg>
+          );
+      }
+    }
+
+    /* ============================================================================
+       4. KOMPONEN RENDER HALAMAN BUKU + WIDGET INTERAKTIF MENGAMBANG
+    ============================================================================ */
+    function BookPageRenderer({
+      page,
+      pageNumber,
+      totalPages,
+      branding,
+      isDarkBg,
+      side,
+      onJumpToPage,
+      onTriggerWidget,
+    }) {
+      if (!page) {
+        return (
+          <div className="w-full h-full flex items-center justify-center bg-slate-50 text-slate-300">
+            <span className="font-serif italic text-sm">Akhir Publikasi</span>
+          </div>
+        );
+      }
+
+      const formatPageNumber = () => {
+        if (!branding.showPageNumbers) return '';
+        return branding.pageNumberFormat
+          .replace('{n}', String(pageNumber))
+          .replace('{total}', String(totalPages));
+      };
+
+      const spineOverlay =
+        side === 'left'
+          ? 'spine-shadow-left'
+          : side === 'right'
+          ? 'spine-shadow-right'
+          : '';
+
+      // Render overlay widget interaktif (Link, Audio, Video, Formulir, Embed)
+      const renderWidgetsOverlay = () => {
+        if (!page.widgets || page.widgets.length === 0) return null;
+        return (
+          <div className="absolute inset-0 pointer-events-none z-20">
+            {page.widgets.map((w) => {
+              const iconMap = {
+                link: '🔗',
+                audio: '🔊',
+                video: '🎬',
+                form: '📝',
+                embed: '🌐',
+              };
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTriggerWidget(w);
+                  }}
+                  style={{
+                    left: `${w.x ?? 50}%`,
+                    top: `${w.y ?? 80}%`,
+                    backgroundColor: w.color || branding.primaryColor,
+                  }}
+                  className="pointer-events-auto -translate-x-1/2 -translate-y-1/2 absolute px-3.5 py-2 rounded-full text-white text-xs font-semibold shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 whitespace-nowrap ring-2 ring-white/80"
+                >
+                  <span>{iconMap[w.type] || '✨'}</span>
+                  <span>{w.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      };
+
+      // 1. HALAMAN HASIL KONVERSI PDF / GAMBAR
+      if (page.type === 'image') {
+        return (
+          <div className="relative w-full h-full flex flex-col justify-between p-3 sm:p-4 bg-white text-slate-800 select-none">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <span className="truncate max-w-[70%]">{page.chapter || branding.title}</span>
+              <span>{formatPageNumber()}</span>
+            </div>
+
+            <div className="flex-1 my-1.5 flex items-center justify-center overflow-hidden rounded-lg bg-slate-50/70">
+              <img
+                src={page.imageUrl}
+                alt={page.chapter || `Halaman ${pageNumber}`}
+                className="max-w-full max-h-full object-contain rounded shadow-sm pointer-events-none"
+                draggable={false}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+              <span>{branding.publisher}</span>
+              <span>{formatPageNumber()}</span>
+            </div>
+
+            {renderWidgetsOverlay()}
+            {spineOverlay && <div className={`absolute inset-0 pointer-events-none ${spineOverlay}`} />}
+          </div>
+        );
+      }
+
+      // 2. HALAMAN SAMPUL DEPAN (COVER) DENGAN GRADASI CERAH & LOGO MEREK
+      if (page.type === 'cover') {
+        return (
+          <div
+            className="relative w-full h-full flex flex-col justify-between p-5 sm:p-7 text-white select-none overflow-hidden"
+            style={{
+              background: `linear-gradient(135deg, ${branding.primaryColor} 0%, #0f172a 100%)`,
+            }}
+          >
+            {/* Dekorasi Cahaya Cerah */}
+            <div
+              className="absolute -top-16 -right-16 w-52 h-52 rounded-full blur-2xl opacity-45 pointer-events-none"
+              style={{ backgroundColor: branding.accentColor }}
+            />
+            <div className="absolute inset-3 border border-white/25 rounded-xl pointer-events-none" />
+
+            {/* Header Logo & Badge */}
+            <div className="relative z-10 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {branding.logoUrl ? (
+                  <img
+                    src={branding.logoUrl}
+                    alt="Logo"
+                    className="w-8 h-8 rounded-lg object-cover bg-white p-0.5 shadow"
+                  />
+                ) : (
+                  <MoonlightBookLogo className="w-9 h-9 shadow-lg" />
+                )}
+                <span className="text-xs font-semibold tracking-wide opacity-90">
+                  {branding.publisher}
+                </span>
+              </div>
+
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-white/15 backdrop-blur-sm border border-white/25">
+                {page.badge || 'EDISI DIGITAL'}
+              </span>
+            </div>
+
+            {/* Konten Utama Sampul */}
+            <div className="relative z-10 my-auto py-3 space-y-3">
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20">
+                <BrightIllustration
+                  type="sunrise"
+                  primaryColor={branding.primaryColor}
+                  accentColor={branding.accentColor}
+                />
+              </div>
+
+              <h1 className="font-serif text-xl sm:text-2xl md:text-[26px] font-bold leading-tight text-white drop-shadow-sm">
+                {branding.title || page.title}
+              </h1>
+              <p className="text-xs sm:text-sm text-sky-100/90 leading-relaxed">
+                {branding.subtitle || page.subtitle}
+              </p>
+            </div>
+
+            {/* Footer Sampul */}
+            <div className="relative z-10 pt-3 border-t border-white/20 flex items-center justify-between text-[11px] text-white/90">
+              <span>{page.author || branding.publisher}</span>
+              <span className="font-mono">{formatPageNumber() || 'Geser / Tap →'}</span>
+            </div>
+
+            {renderWidgetsOverlay()}
+          </div>
+        );
+      }
+
+      // 3. HALAMAN SAMPUL BELAKANG
+      if (page.type === 'backcover') {
+        return (
+          <div
+            className="relative w-full h-full flex flex-col justify-between p-6 sm:p-8 text-white select-none overflow-hidden"
+            style={{
+              background: `linear-gradient(225deg, ${branding.primaryColor} 0%, #0f172a 100%)`,
+            }}
+          >
+            <div className="absolute inset-3 border border-white/20 rounded-xl pointer-events-none" />
+            <div className="relative z-10">
+              <span className="px-3 py-1 rounded-full text-[10px] font-mono bg-white/15 border border-white/20">
+                {page.badge}
+              </span>
+            </div>
+
+            <div className="relative z-10 my-auto text-center space-y-4 max-w-xs mx-auto">
+              <div
+                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center font-bold text-lg text-slate-900 shadow-lg"
+                style={{ backgroundColor: branding.accentColor }}
+              >
+                <MoonlightBookLogo className="w-12 h-12" />
+              </div>
+              <h2 className="font-serif text-lg sm:text-xl font-bold">{page.title}</h2>
+              <p className="text-xs sm:text-sm text-sky-100/85 leading-relaxed">{page.summary}</p>
+            </div>
+
+            <div className="relative z-10 pt-3 border-t border-white/20 text-center text-[11px] font-mono text-white/80">
+              <div>{page.contact}</div>
+              {branding.showPageNumbers && <div className="mt-1">{formatPageNumber()}</div>}
+            </div>
+
+            {renderWidgetsOverlay()}
+          </div>
+        );
+      }
+
+      // 4. HALAMAN DAFTAR ISI
+      if (page.type === 'toc') {
+        return (
+          <div className="relative w-full h-full flex flex-col justify-between p-4 sm:p-6 bg-white text-slate-800 select-none">
+            <div>
+              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider mb-1">
+                <span style={{ color: branding.primaryColor }} className="font-bold">
+                  {page.kicker}
+                </span>
+                <span className="text-slate-400">{formatPageNumber()}</span>
+              </div>
+              <h2 className="font-serif text-lg sm:text-xl font-bold text-slate-900">{page.title}</h2>
+              <p className="text-xs text-slate-500 mt-0.5">{page.subtitle}</p>
+            </div>
+
+            <div className="my-2 flex-1 overflow-y-auto custom-scroll pr-1 space-y-1.5">
+              {(page.items || []).map((item) => (
+                <button
+                  key={item.page}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onJumpToPage(item.page);
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-xl border border-slate-200/80 hover:border-sky-400 hover:bg-sky-50/70 transition-all flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 truncate">{item.title}</div>
+                    <div className="text-[11px] text-slate-500 truncate">{item.desc}</div>
+                  </div>
+                  <span
+                    className="shrink-0 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-lg text-white"
+                    style={{ backgroundColor: branding.primaryColor }}
+                  >
+                    {String(item.page).padStart(2, '0')}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-between text-[10px] font-mono text-slate-400">
+              <span className="truncate">{branding.title}</span>
+              <span>{formatPageNumber()}</span>
+            </div>
+
+            {renderWidgetsOverlay()}
+            {spineOverlay && <div className={`absolute inset-0 pointer-events-none ${spineOverlay}`} />}
+          </div>
+        );
+      }
+
+      // 5. HALAMAN EDITORIAL CERAH
+      return (
+        <div className="relative w-full h-full flex flex-col justify-between p-4 sm:p-6 bg-white text-slate-800 select-none overflow-hidden">
+          <div>
+            <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider mb-1">
+              <span style={{ color: branding.primaryColor }} className="font-bold">
+                {page.kicker}
+              </span>
+              <span className="text-slate-400">{formatPageNumber()}</span>
+            </div>
+            <h2 className="font-serif text-base sm:text-lg md:text-xl font-bold text-slate-900 leading-snug">
+              {page.title}
+            </h2>
+          </div>
+
+          <div className="my-2 flex-1 flex flex-col gap-2.5 overflow-y-auto custom-scroll pr-0.5 pb-8">
+            <BrightIllustration
+              type={page.illustration}
+              primaryColor={branding.primaryColor}
+              accentColor={branding.accentColor}
+            />
+
+            <p className="text-xs sm:text-[13px] font-semibold text-slate-700 leading-relaxed">
+              {page.lead}
+            </p>
+
+            <div className="space-y-1.5 text-[11px] sm:text-xs text-slate-600 leading-relaxed">
+              {(page.paragraphs || []).map((p, idx) => (
+                <p key={idx}>{p}</p>
+              ))}
+            </div>
+
+            {page.factTitle && (
+              <div className="p-2.5 rounded-xl bg-sky-50/80 border border-sky-200/70 text-[11px] text-slate-700">
+                <span className="font-bold uppercase mr-1.5" style={{ color: branding.primaryColor }}>
+                  {page.factTitle}:
+                </span>
+                <span>{page.factText}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] font-mono text-slate-400">
+            <span className="truncate max-w-[72%]">{page.chapter}</span>
+            <span>{formatPageNumber()}</span>
+          </div>
+
+          {renderWidgetsOverlay()}
+          {spineOverlay && <div className={`absolute inset-0 pointer-events-none ${spineOverlay}`} />}
+        </div>
+      );
+    }
+
+    /* ============================================================================
+       5. MODAL INTERAKTIF WIDGET (AUDIO PLAYER, VIDEO, FORMULIR, WEB EMBED)
+    ============================================================================ */
+    function WidgetRunnerModal({ widget, onClose, branding }) {
+      const [formSubmitted, setFormSubmitted] = useState(false);
+      const [formName, setFormName] = useState('');
+      const [formEmail, setFormEmail] = useState('');
+      const [formNote, setFormNote] = useState('');
+
+      if (!widget) return null;
+
+      // Ubah URL YouTube biasa ke format embed otomatis
+      const getEmbedVideoUrl = (rawUrl) => {
+        if (!rawUrl) return '';
+        if (rawUrl.includes('youtube.com/watch?v=')) {
+          const id = rawUrl.split('v=')[1]?.split('&')[0];
+          return `https://www.youtube.com/embed/${id}`;
+        }
+        if (rawUrl.includes('youtu.be/')) {
+          const id = rawUrl.split('youtu.be/')[1]?.split('?')[0];
+          return `https://www.youtube.com/embed/${id}`;
+        }
+        return rawUrl;
+      };
+
+      const handleFormSubmit = (e) => {
+        e.preventDefault();
+        setFormSubmitted(true);
+      };
+
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          onClick={onClose}
+        >
+          <div
+            className="animate-pop w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal Widget */}
+            <div
+              className="px-5 py-3.5 text-white flex items-center justify-between"
+              style={{ backgroundColor: widget.color || branding.primaryColor }}
+            >
+              <div className="font-bold text-sm truncate pr-2">{widget.label}</div>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition-colors"
+                aria-label="Tutup widget"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Isi Widget Sesuai Tipe */}
+            <div className="p-5">
+              {widget.type === 'audio' && (
+                <div className="space-y-4 text-center py-2">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center text-3xl shadow-inner">
+                    🎧
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-base text-slate-900">{widget.label}</h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {widget.url ? 'Memutar trek audio eksternal' : 'Narasi Audio Interaktif Publikasi Digital'}
+                    </p>
+                  </div>
+                  {widget.url ? (
+                    <audio controls autoPlay className="w-full">
+                      <source src={widget.url} />
+                    </audio>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-teal-50/80 border border-teal-200 text-xs text-teal-800">
+                      “Selamat datang di {branding.title}. Anda sedang menjelajahi publikasi interaktif yang dirancang untuk kenyamanan baca di ponsel maupun desktop.”
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {widget.type === 'video' && (
+                <div className="space-y-3">
+                  {widget.url ? (
+                    <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-900">
+                      <iframe
+                        src={getEmbedVideoUrl(widget.url)}
+                        title={widget.label}
+                        className="w-full h-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-6 rounded-xl bg-slate-100 text-center text-xs text-slate-500">
+                      URL Video belum diisi. Masukkan tautan YouTube atau MP4 di tab Widget.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {widget.type === 'form' && (
+                <div>
+                  {widget.url ? (
+                    <div className="w-full h-80 rounded-xl overflow-hidden border border-slate-200">
+                      <iframe src={widget.url} title={widget.label} className="w-full h-full border-0" />
+                    </div>
+                  ) : formSubmitted ? (
+                    <div className="py-6 text-center space-y-2">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xl font-bold">
+                        ✓
+                      </div>
+                      <h4 className="font-bold text-base text-slate-900">Terima Kasih, {formName || 'Pembaca'}!</h4>
+                      <p className="text-xs text-slate-500">
+                        Respons Anda telah tercatat dari publikasi <strong>{branding.title}</strong>.
+                      </p>
+                      <button
+                        onClick={() => setFormSubmitted(false)}
+                        className="mt-2 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200"
+                      >
+                        Isi Ulang Formulir
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleFormSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Nama Lengkap</label>
+                        <input
+                          type="text"
+                          required
+                          value={formName}
+                          onChange={(e) => setFormName(e.target.value)}
+                          placeholder="Masukkan nama Anda"
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:border-sky-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Alamat Email / WhatsApp</label>
+                        <input
+                          type="text"
+                          required
+                          value={formEmail}
+                          onChange={(e) => setFormEmail(e.target.value)}
+                          placeholder="nama@email.com"
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:border-sky-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Pesan / Pertanyaan</label>
+                        <textarea
+                          rows="2"
+                          value={formNote}
+                          onChange={(e) => setFormNote(e.target.value)}
+                          placeholder="Tulis pesan atau permintaan katalog..."
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:border-sky-500 outline-none"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-md hover:brightness-110 transition-all"
+                        style={{ backgroundColor: widget.color || branding.primaryColor }}
+                      >
+                        Kirim Respons Sekarang
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              {widget.type === 'embed' && (
+                <div className="space-y-2">
+                  <div className="w-full h-72 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                    <iframe
+                      src={widget.url || 'https://www.openstreetmap.org/export/embed.html'}
+                      title={widget.label}
+                      className="w-full h-full border-0"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================================
+       6. MODAL BAGIKAN (GAYA TAUTAN SAMPUL, QR CODE, EMAIL, SOSMED & EMBED CODE)
+    ============================================================================ */
+    function SharePublishModal({
+      isOpen,
+      onClose,
+      currentPage,
+      branding,
+      cloudShareUrl,
+      onSaveToCloud,
+      isSavingCloud,
+    }) {
+      const qrRef = useRef(null);
+      const [activeTab, setActiveTab] = useState('link'); // 'link' | 'embed'
+      const [linkStyle, setLinkStyle] = useState('card'); // 'card' | 'direct' | 'page'
+      const [embedStyle, setEmbedStyle] = useState('responsive'); // 'responsive' | 'compact' | 'popup'
+      const [copiedTarget, setCopiedTarget] = useState('');
+
+      const baseShareUrl = useMemo(() => {
+        if (cloudShareUrl) return cloudShareUrl;
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.set('mode', 'reader');
+          if (linkStyle === 'page') {
+            u.searchParams.set('page', String(currentPage));
+          } else {
+            u.searchParams.set('page', '1');
+          }
+          return u.toString();
+        } catch (e) {
+          return `${window.location.origin}${window.location.pathname}?page=${currentPage}&mode=reader`;
+        }
+      }, [cloudShareUrl, currentPage, linkStyle, isOpen]);
+
+      const finalLink = useMemo(() => {
+        if (!cloudShareUrl) return baseShareUrl;
+        const sep = cloudShareUrl.includes('?') ? '&' : '?';
+        return linkStyle === 'page'
+          ? `${cloudShareUrl}${sep}page=${currentPage}`
+          : cloudShareUrl;
+      }, [cloudShareUrl, baseShareUrl, linkStyle, currentPage]);
+
+      const embedCode = useMemo(() => {
+        if (embedStyle === 'compact') {
+          return `<iframe src="${finalLink}" width="640" height="450" style="border:1px solid #e2e8f0;border-radius:16px;" allowfullscreen loading="lazy"></iframe>`;
+        }
+        if (embedStyle === 'popup') {
+          return `<a href="${finalLink}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 24px;background:${branding.primaryColor};color:#fff;font-family:sans-serif;font-weight:bold;border-radius:12px;text-decoration:none;">📖 Baca ${branding.title}</a>`;
+        }
+        return `<div style="position:relative;padding-bottom:68%;height:0;overflow:hidden;border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,0.12);"><iframe src="${finalLink}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe></div>`;
+      }, [embedStyle, finalLink, branding]);
+
+      useEffect(() => {
+        if (!isOpen || activeTab !== 'link' || !qrRef.current) return;
+        qrRef.current.innerHTML = '';
+        if (window.QRCode) {
+          new window.QRCode(qrRef.current, {
+            text: finalLink,
+            width: 152,
+            height: 152,
+            colorDark: '#0f172a',
+            colorLight: '#ffffff',
+            correctLevel: window.QRCode.CorrectLevel.M,
+          });
+        }
+      }, [isOpen, activeTab, finalLink]);
+
+      if (!isOpen) return null;
+
+      const copyText = (text, label) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          setCopiedTarget(label);
+          setTimeout(() => setCopiedTarget(''), 2500);
+        } catch (e) {}
+        document.body.removeChild(ta);
+      };
+
+      const encodedUrl = encodeURIComponent(finalLink);
+      const encodedTitle = encodeURIComponent(`Baca publikasi interaktif "${branding.title}"`);
+
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          onClick={onClose}
+        >
+          <div
+            className="animate-pop w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden text-slate-800 max-h-[92dvh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-sky-50 to-amber-50">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Bagikan & Terbitkan Buku Digital</h3>
+                <p className="text-xs text-slate-500">Pilih gaya tautan sampul, kode QR, atau kode semat website</p>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-xl hover:bg-slate-200/70 transition-colors"
+                aria-label="Tutup modal bagikan"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Tab Navigasi */}
+            <div className="px-5 pt-3 flex gap-2 border-b border-slate-100 pb-3">
+              <button
+                onClick={() => setActiveTab('link')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === 'link'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                🔗 Tautan Sampul & Kode QR
+              </button>
+              <button
+                onClick={() => setActiveTab('embed')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === 'embed'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                &lt;/&gt; Sematkan ke Website
+              </button>
+            </div>
+
+            {/* Konten Modal */}
+            <div className="p-5 overflow-y-auto custom-scroll space-y-4">
+              {/* Tombol Simpan ke Google Drive (jika berjalan di Apps Script) */}
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-between gap-3">
+                <div className="text-xs">
+                  <div className="font-bold text-amber-900">Simpan Proyek ke Google Drive</div>
+                  <div className="text-[11px] text-amber-700">
+                    {cloudShareUrl
+                      ? 'Tersimpan di Drive! Tautan siap dibuka perangkat lain.'
+                      : 'Simpan kustomisasi & widget agar tautan dapat dibuka teman.'}
+                  </div>
+                </div>
+                <button
+                  onClick={onSaveToCloud}
+                  disabled={isSavingCloud}
+                  className="shrink-0 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm disabled:opacity-50"
+                >
+                  {isSavingCloud ? 'Menyimpan...' : cloudShareUrl ? 'Perbarui Drive' : 'Simpan Drive'}
+                </button>
+              </div>
+
+              {activeTab === 'link' ? (
+                <>
+                  {/* Pilihan Gaya Tautan */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'card', label: 'Kartu Sampul' },
+                      { id: 'direct', label: 'Baca Penuh' },
+                      { id: 'page', label: `Hal. ${currentPage} Aktif` },
+                    ].map((st) => (
+                      <button
+                        key={st.id}
+                        onClick={() => setLinkStyle(st.id)}
+                        className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                          linkStyle === st.id
+                            ? 'border-sky-600 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Pratinjau Kartu Sampul + QR Code */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row items-center gap-4">
+                    <div className="p-2.5 bg-white rounded-xl shadow-sm border border-slate-200 shrink-0">
+                      <div ref={qrRef} />
+                    </div>
+
+                    <div className="flex-1 min-w-0 text-center sm:text-left space-y-1.5">
+                      <span
+                        className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold text-white"
+                        style={{ backgroundColor: branding.primaryColor }}
+                      >
+                        {branding.publisher}
+                      </span>
+                      <h4 className="font-serif font-bold text-sm text-slate-900 line-clamp-2">
+                        {branding.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 line-clamp-2">
+                        {branding.subtitle}
+                      </p>
+                      <div className="text-[10px] font-mono text-sky-700">
+                        Pindai QR dengan kamera HP untuk langsung membaca
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Input URL & Salin */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={finalLink}
+                      className="flex-1 px-3 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-mono text-slate-700 outline-none"
+                    />
+                    <button
+                      onClick={() => copyText(finalLink, 'link')}
+                      className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shrink-0 transition-all"
+                    >
+                      {copiedTarget === 'link' ? 'Tersalin!' : 'Salin Link'}
+                    </button>
+                  </div>
+
+                  {/* Tombol Bagikan Cepat ke Email & Media Sosial */}
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <a
+                      href={`https://wa.me/?text=${encodedTitle}%20${encodedUrl}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold text-center transition-colors"
+                    >
+                      WhatsApp
+                    </a>
+                    <a
+                      href={`mailto:?subject=${encodedTitle}&body=${encodedTitle}%0A%0ABuka%20di%20sini:%20${encodedUrl}`}
+                      className="py-2.5 px-3 rounded-xl bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold text-center transition-colors"
+                    >
+                      Email
+                    </a>
+                    <a
+                      href={`https://t.me/share/url?url=${encodedUrl}&text=${encodedTitle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2.5 px-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold text-center transition-colors"
+                    >
+                      Telegram
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Pilihan Gaya Penyematan Website */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      Pilih Gaya Penyematan (Embed Style)
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'responsive', label: 'Responsif Penuh' },
+                        { id: 'compact', label: 'Bingkai 640×450' },
+                        { id: 'popup', label: 'Tombol Baca' },
+                      ].map((em) => (
+                        <button
+                          key={em.id}
+                          onClick={() => setEmbedStyle(em.id)}
+                          className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                            embedStyle === em.id
+                              ? 'border-sky-600 bg-sky-50 text-sky-700'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {em.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Salin Kode HTML Sematan
+                    </label>
+                    <textarea
+                      readOnly
+                      rows="4"
+                      value={embedCode}
+                      className="w-full p-3 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] outline-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => copyText(embedCode, 'embed')}
+                    className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-all"
+                  >
+                    {copiedTarget === 'embed' ? '✓ Kode Semat Tersalin!' : 'Salin Kode Semat HTML'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================================
+       7. APLIKASI UTAMA: LONTAR STUDIO — PEMBUAT & PEMBACA FLIP BOOK CERAH
+    ============================================================================ */
+    function FlipBookStudioApp() {
+      const initialPageNum = useMemo(() => {
+        const gasPage = parseInt(window.GAS_PARAMS?.page, 10);
+        if (!isNaN(gasPage) && gasPage >= 1) return gasPage;
+        try {
+          const p = parseInt(new URLSearchParams(window.location.search).get('page'), 10);
+          if (!isNaN(p) && p >= 1) return p;
+        } catch (e) {}
+        return 1;
+      }, []);
+
+      const initialReaderMode = useMemo(() => {
+        if (window.GAS_PARAMS?.mode === 'reader') return true;
+        try {
+          return new URLSearchParams(window.location.search).get('mode') === 'reader';
+        } catch (e) {
+          return false;
+        }
+      }, []);
+
+      // State Utama Buku & Merek
+      const [pages, setPages] = useState(DEFAULT_PAGES);
+      const [branding, setBranding] = useState(DEFAULT_BRANDING);
+      const [currentPage, setCurrentPage] = useState(initialPageNum);
+
+      // State Mode Studio (Editor Terbuka) vs Mode Pembaca Penuh
+      const [isStudioOpen, setIsStudioOpen] = useState(!initialReaderMode);
+      const [studioTab, setStudioTab] = useState('pdf'); // 'pdf' | 'brand' | 'widgets'
+
+      // State Konversi PDF
+      const [isConvertingPdf, setIsConvertingPdf] = useState(false);
+      const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
+
+      // State Form Tambah Widget Baru
+      const [newWidgetType, setNewWidgetType] = useState('link');
+      const [newWidgetLabel, setNewWidgetLabel] = useState('');
+      const [newWidgetUrl, setNewWidgetUrl] = useState('');
+      const [newWidgetY, setNewWidgetY] = useState(80);
+      const [activeWidgetModal, setActiveWidgetModal] = useState(null);
+
+      // State Responsivitas Layar & Mode Tampilan Halaman
+      const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+      const [viewMode, setViewMode] = useState(() => (window.innerWidth < 768 ? 'single' : 'spread'));
+      const [manualViewOverride, setManualViewOverride] = useState(false);
+
+      // State Animasi Transisi (Flip 3D / Geser / Coverflow)
+      const [flipAnim, setFlipAnim] = useState(null);
+      const [slideAnimClass, setSlideAnimClass] = useState('');
+
+      // State Zoom, Pan, Audio, Share & Cloud Drive
+      const [zoom, setZoom] = useState(1);
+      const [pan, setPan] = useState({ x: 0, y: 0 });
+      const [isPanning, setIsPanning] = useState(false);
+      const [isMuted, setIsMuted] = useState(false);
+      const [isShareOpen, setIsShareOpen] = useState(false);
+      const [isTocOpen, setIsTocOpen] = useState(false);
+      const [cloudFileId, setCloudFileId] = useState(window.GAS_PARAMS?.bookId || '');
+      const [cloudShareUrl, setCloudShareUrl] = useState('');
+      const [isSavingCloud, setIsSavingCloud] = useState(false);
+      const [toast, setToast] = useState('');
+
+      const panStartRef = useRef({ x: 0, y: 0 });
+      const touchStartRef = useRef(null);
+      const pdfInputRef = useRef(null);
+      const logoInputRef = useRef(null);
+
+      const notify = useCallback((msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(''), 2800);
+      }, []);
+
+      // Muat otomatis dari Google Drive jika dibuka dengan parameter ?id=...
+      useEffect(() => {
+        const bookId = window.GAS_PARAMS?.bookId || new URLSearchParams(window.location.search).get('id');
+        if (bookId && window.google && window.google.script && window.google.script.run) {
+          window.google.script.run
+            .withSuccessHandler((res) => {
+              if (res && res.success && res.data) {
+                if (res.data.branding) setBranding(res.data.branding);
+                if (res.data.pages) setPages(res.data.pages);
+                setCloudFileId(res.fileId);
+                notify('Publikasi dimuat dari Google Drive!');
+              }
+            })
+            .loadFlipbookProject(bookId);
+        }
+      }, [notify]);
+
+      // Responsivitas Viewport
+      useEffect(() => {
+        const onResize = () => {
+          const mobile = window.innerWidth < 768;
+          setIsMobile(mobile);
+          if (!manualViewOverride) {
+            setViewMode(mobile ? 'single' : 'spread');
+          }
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+      }, [manualViewOverride]);
+
+      useEffect(() => {
+        if (zoom <= 1) setPan({ x: 0, y: 0 });
+      }, [zoom]);
+
+      // Konversi File PDF Ukuran Apa Pun Menggunakan PDF.js
+      const handlePdfUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!window.pdfjsLib) {
+          notify('Pustaka PDF.js sedang dimuat, coba sesaat lagi.');
+          return;
+        }
+
+        setIsConvertingPdf(true);
+        setPdfProgress({ current: 0, total: 0 });
+
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const total = pdfDoc.numPages;
+          setPdfProgress({ current: 0, total });
+
+          const convertedPages = [];
+          // Skala render adaptif agar PDF ukuran besar tetap tajam namun ringan di HP
+          for (let pageNum = 1; pageNum <= total; pageNum++) {
+            const page = await pdfDoc.getPage(pageNum);
+            const rawViewport = page.getViewport({ scale: 1 });
+            const targetWidth = 1100;
+            const scale = Math.min(2.0, Math.max(1.1, targetWidth / rawViewport.width));
+            const viewport = page.getViewport({ scale });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const imageUrl = canvas.toDataURL('image/jpeg', 0.86);
+
+            convertedPages.push({
+              id: pageNum,
+              type: 'image',
+              chapter: `Halaman ${pageNum}`,
+              imageUrl,
+              widgets: [],
+            });
+
+            setPdfProgress({ current: pageNum, total });
+          }
+
+          const cleanName = file.name.replace(/\.pdf$/i, '');
+          setPages(convertedPages);
+          setBranding((prev) => ({ ...prev, title: cleanName }));
+          setCurrentPage(1);
+          setZoom(1);
+          notify(`Berhasil mengonversi ${total} halaman PDF menjadi Flip Book!`);
+        } catch (err) {
+          notify('Gagal membaca PDF: ' + err.message);
+        } finally {
+          setIsConvertingPdf(false);
+          e.target.value = '';
+        }
+      };
+
+      // Unggah Logo Kustom
+      const handleLogoUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          setBranding((prev) => ({ ...prev, logoUrl: reader.result }));
+          notify('Logo merek diperbarui!');
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+      };
+
+      // Tambah Widget Interaktif ke Halaman Aktif
+      const handleAddWidget = (e) => {
+        e.preventDefault();
+        const defaultLabels = {
+          link: 'Kunjungi Tautan ↗',
+          audio: 'Putar Audio Narasi',
+          video: '▶ Tonton Video',
+          form: 'Isi Formulir Interaktif',
+          embed: 'Buka Sematan Web',
+        };
+        const widgetObj = {
+          id: 'w-' + Date.now(),
+          type: newWidgetType,
+          label: newWidgetLabel.trim() || defaultLabels[newWidgetType],
+          url: newWidgetUrl.trim(),
+          x: 50,
+          y: Number(newWidgetY) || 80,
+          color: branding.primaryColor,
+        };
+
+        setPages((prev) =>
+          prev.map((p, idx) =>
+            idx === currentPage - 1
+              ? { ...p, widgets: [...(p.widgets || []), widgetObj] }
+              : p
+          )
+        );
+        setNewWidgetLabel('');
+        setNewWidgetUrl('');
+        notify(`Widget ${newWidgetType.toUpperCase()} ditambahkan ke Halaman ${currentPage}!`);
+      };
+
+      const handleRemoveWidget = (widgetId) => {
+        setPages((prev) =>
+          prev.map((p, idx) =>
+            idx === currentPage - 1
+              ? { ...p, widgets: (p.widgets || []).filter((w) => w.id !== widgetId) }
+              : p
+          )
+        );
+      };
+
+      // Eksekusi Klik Widget pada Halaman
+      const handleTriggerWidget = (widget) => {
+        if (widget.type === 'link') {
+          if (widget.url) {
+            window.open(widget.url, '_blank', 'noopener,noreferrer');
+          } else {
+            notify('Tautan belum diatur pada widget ini.');
+          }
+          return;
+        }
+        setActiveWidgetModal(widget);
+      };
+
+      // Simpan Proyek ke Google Drive via google.script.run
+      const handleSaveToDrive = () => {
+        if (!(window.google && window.google.script && window.google.script.run)) {
+          notify('Mode pratinjau lokal: siap disimpan saat di-deploy ke Google Apps Script.');
+          return;
+        }
+        setIsSavingCloud(true);
+        const payload = JSON.stringify({ branding, pages });
+        window.google.script.run
+          .withSuccessHandler((res) => {
+            setIsSavingCloud(false);
+            if (res && res.success) {
+              setCloudFileId(res.fileId);
+              setCloudShareUrl(res.shareUrl);
+              notify('Proyek berhasil disimpan ke Google Drive!');
+            } else {
+              notify(res?.message || 'Gagal menyimpan ke Google Drive.');
+            }
+          })
+          .withFailureHandler((err) => {
+            setIsSavingCloud(false);
+            notify('Galat server: ' + err.message);
+          })
+          .saveFlipbookProject(payload, cloudFileId);
+      };
+
+      // Navigasi Halaman dengan 3 Efek Pilihan: Flip 3D, Geser (Slide), & Coverflow
+      const goToPage = useCallback(
+        (target) => {
+          const clamped = Math.max(1, Math.min(pages.length, target));
+          if (clamped === currentPage) return;
+
+          const dir = clamped > currentPage ? 'next' : 'prev';
+          paperAudio.play(isMuted);
+
+          if (branding.transitionEffect === 'flip') {
+            setFlipAnim({
+              direction: dir,
+              frontPage: pages[currentPage - 1],
+              backPage: pages[clamped - 1],
+              started: false,
+            });
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                setFlipAnim((prev) => (prev ? { ...prev, started: true } : null));
+              });
+            });
+            setTimeout(() => setFlipAnim(null), 640);
+          } else {
+            setSlideAnimClass(dir === 'next' ? 'anim-slide-next' : 'anim-slide-prev');
+            setTimeout(() => setSlideAnimClass(''), 380);
+          }
+
+          setCurrentPage(clamped);
+        },
+        [currentPage, pages, isMuted, branding.transitionEffect]
+      );
+
+      const handleNext = useCallback(() => {
+        if (currentPage >= pages.length) return;
+        if (viewMode === 'single' || branding.transitionEffect === 'coverflow') {
+          goToPage(currentPage + 1);
+        } else {
+          goToPage(currentPage === 1 ? 2 : Math.min(pages.length, currentPage + 2));
+        }
+      }, [currentPage, pages.length, viewMode, branding.transitionEffect, goToPage]);
+
+      const handlePrev = useCallback(() => {
+        if (currentPage <= 1) return;
+        if (viewMode === 'single' || branding.transitionEffect === 'coverflow') {
+          goToPage(currentPage - 1);
+        } else {
+          goToPage(currentPage <= 3 ? 1 : Math.max(1, currentPage - 2));
+        }
+      }, [currentPage, viewMode, branding.transitionEffect, goToPage]);
+
+      // Pasangan Halaman Spread
+      const spreadPages = useMemo(() => {
+        const total = pages.length;
+        if (viewMode === 'single' || branding.transitionEffect === 'coverflow') {
+          return { isSingle: true, single: pages[currentPage - 1] };
+        }
+        if (currentPage === 1 || (total % 2 === 0 && currentPage === total)) {
+          return { isSingle: true, single: pages[currentPage - 1] };
+        }
+        const leftIdx = currentPage % 2 === 0 ? currentPage - 1 : currentPage - 2;
+        return {
+          isSingle: false,
+          left: pages[leftIdx] || null,
+          right: pages[leftIdx + 1] || null,
+        };
+      }, [pages, currentPage, viewMode, branding.transitionEffect]);
+
+      // Gestur Swipe Sentuh & Pan
+      const handleTouchStart = (e) => {
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+          if (zoom > 1) {
+            setIsPanning(true);
+            panStartRef.current = { x: t.clientX - pan.x, y: t.clientY - pan.y };
+          }
+        }
+      };
+
+      const handleTouchMove = (e) => {
+        if (e.touches.length === 1 && zoom > 1 && isPanning) {
+          const t = e.touches[0];
+          setPan({ x: t.clientX - panStartRef.current.x, y: t.clientY - panStartRef.current.y });
+        }
+      };
+
+      const handleTouchEnd = (e) => {
+        setIsPanning(false);
+        if (!touchStartRef.current || e.changedTouches.length !== 1) return;
+        const end = e.changedTouches[0];
+        const dx = end.clientX - touchStartRef.current.x;
+        const dy = end.clientY - touchStartRef.current.y;
+        if (zoom === 1 && Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          if (dx < 0) handleNext();
+          else handlePrev();
+        }
+        touchStartRef.current = null;
+      };
+
+      // Tema Latar Belakang Stage Cerah
+      const bgThemeClass = {
+        'bright-sky': 'bg-gradient-to-br from-indigo-100 via-white to-rose-50 text-slate-800',
+        'warm-cream': 'bg-gradient-to-br from-amber-100/80 via-[#fffdf7] to-orange-50 text-slate-800',
+        'mint-breeze': 'bg-gradient-to-br from-emerald-100/70 via-white to-teal-50 text-slate-800',
+        'dark-night': 'bg-slate-900 text-slate-100',
+      }[branding.bgStyle] || 'bg-sky-50 text-slate-800';
+
+      const iconRadiusClass = {
+        rounded: 'rounded-xl',
+        pill: 'rounded-full',
+        sharp: 'rounded-md',
+      }[branding.iconStyle] || 'rounded-xl';
+
+      const currentPageObj = pages[currentPage - 1];
+
+      return (
+        <div
+          className={`h-dvh w-screen overflow-hidden flex flex-col justify-between transition-colors duration-300 ${bgThemeClass}`}
+          style={{ '--accent-color': branding.primaryColor }}
+        >
+          {/* ==================================================================
+              HEADER NAVIGASI CERAH & MODERN
+          ================================================================== */}
+          <header className="z-30 shrink-0 px-3 sm:px-5 py-2.5 bg-white/85 backdrop-blur-md border-b border-slate-200/80 flex items-center justify-between gap-2 shadow-sm">
+            {/* Kiri: Logo Merek + Judul */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                onClick={() => setIsTocOpen(true)}
+                className={`p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors shrink-0 ${iconRadiusClass}`}
+                title="Daftar Isi & Miniatur Halaman"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h12M4 18h8" />
+                </svg>
+              </button>
+
+              {branding.logoUrl ? (
+                <img src={branding.logoUrl} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0" />
+              ) : (
+                <MoonlightBookLogo className="w-9 h-9 rounded-lg shrink-0 shadow-sm" />
+              )}
+
+              <div className="min-w-0">
+                <h1 className="font-bold text-sm sm:text-base text-slate-900 truncate leading-tight">
+                  {branding.title}
+                </h1>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {branding.publisher} • {currentPageObj?.chapter || `Halaman ${currentPage}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Kanan: Tombol Studio Kustomisasi, Suara, Mode Tampilan & Bagikan */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setIsStudioOpen((v) => !v)}
+                className={`px-3 py-2 text-xs font-bold flex items-center gap-1.5 transition-all border ${iconRadiusClass} ${
+                  isStudioOpen
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                    : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                }`}
+              >
+                <span>✨</span>
+                <span className="hidden sm:inline">{isStudioOpen ? 'Tutup Studio' : 'Edit & PDF'}</span>
+                <span className="sm:hidden">Studio</span>
+              </button>
+
+              {!isMobile && (
+                <button
+                  onClick={() => {
+                    setManualViewOverride(true);
+                    setViewMode((m) => (m === 'single' ? 'spread' : 'single'));
+                  }}
+                  className={`p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors ${iconRadiusClass}`}
+                  title={viewMode === 'spread' ? 'Mode 1 Halaman' : 'Mode 2 Halaman'}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                </button>
+              )}
+
+              <button
+                onClick={() => setIsMuted((m) => !m)}
+                className={`p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors ${iconRadiusClass}`}
+                title={isMuted ? 'Aktifkan Suara' : 'Bisukan Suara'}
+              >
+                {isMuted ? '🔇' : '🔊'}
+              </button>
+
+              <button
+                onClick={() => setIsShareOpen(true)}
+                style={{ backgroundColor: branding.primaryColor }}
+                className={`px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 ${iconRadiusClass}`}
+              >
+                <span>Bagikan</span>
+              </button>
+            </div>
+          </header>
+
+          {/* ==================================================================
+              WORKSPACE UTAMA: PANEL STUDIO (KIRI/BAWAH) + PANGGUNG FLIP BOOK
+          ================================================================== */}
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+            {/* PANEL STUDIO KUSTOMISASI (Konversi PDF, Merek/Logo/Efek, Widget Interaktif) */}
+            {isStudioOpen && (
+              <aside className="z-20 w-full md:w-80 lg:w-96 max-h-[46dvh] md:max-h-full bg-white/95 backdrop-blur-md border-b md:border-b-0 md:border-r border-slate-200 flex flex-col shrink-0 shadow-lg">
+                {/* Tab Studio */}
+                <div className="p-2.5 border-b border-slate-100 grid grid-cols-3 gap-1.5 bg-slate-50/80">
+                  {[
+                    { id: 'pdf', label: '📄 PDF & Efek' },
+                    { id: 'brand', label: '🎨 Merek & Teks' },
+                    { id: 'widgets', label: '⚡ Widget' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setStudioTab(tab.id)}
+                      className={`py-2 px-2 rounded-xl text-xs font-bold transition-all ${
+                        studioTab === tab.id
+                          ? 'bg-white text-sky-700 shadow-sm border border-slate-200/80'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Isi Tab Studio */}
+                <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-4 text-xs">
+                  {studioTab === 'pdf' && (
+                    <>
+                      {/* Konverter PDF Ukuran Apa Pun */}
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200/80 space-y-2.5">
+                        <div className="font-bold text-slate-900 text-sm">Konversi File PDF ke Flip Book</div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          Unggah file PDF ukuran apa pun (A4, Majalah, Katalog, atau Brosur). Sistem otomatis merender halaman tajam siap balik.
+                        </p>
+                        <input
+                          ref={pdfInputRef}
+                          type="file"
+                          accept="application/pdf"
+                          onChange={handlePdfUpload}
+                          className="hidden"
+                        />
+                        <button
+                          onClick={() => pdfInputRef.current?.click()}
+                          disabled={isConvertingPdf}
+                          style={{ backgroundColor: branding.primaryColor }}
+                          className="w-full py-2.5 px-4 rounded-xl text-white font-bold text-xs shadow-sm hover:brightness-110 transition-all"
+                        >
+                          {isConvertingPdf
+                            ? `Mengonversi Hal. ${pdfProgress.current} / ${pdfProgress.total}...`
+                            : '📂 Pilih & Konversi PDF Sekarang'}
+                        </button>
+                      </div>
+
+                      {/* Pilihan Efek Transisi */}
+                      <div className="space-y-2">
+                        <label className="block font-bold text-slate-800">Efek Transisi Halaman</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: 'flip', label: '📖 3D Flip' },
+                            { id: 'slide', label: '➡️ Geser' },
+                            { id: 'coverflow', label: '🎠 Coverflow' },
+                          ].map((ef) => (
+                            <button
+                              key={ef.id}
+                              onClick={() => setBranding((b) => ({ ...b, transitionEffect: ef.id }))}
+                              className={`py-2.5 px-2 rounded-xl font-semibold border transition-all ${
+                                branding.transitionEffect === ef.id
+                                  ? 'border-sky-600 bg-sky-50 text-sky-700'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {ef.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Pilihan Tema Latar Cerah */}
+                      <div className="space-y-2">
+                        <label className="block font-bold text-slate-800">Nuansa Latar Pembaca</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'bright-sky', label: '☀️ Langit Cerah' },
+                            { id: 'warm-cream', label: '🌼 Krem Hangat' },
+                            { id: 'mint-breeze', label: '🌿 Mint Segar' },
+                            { id: 'dark-night', label: '🌙 Mode Malam' },
+                          ].map((bg) => (
+                            <button
+                              key={bg.id}
+                              onClick={() => setBranding((b) => ({ ...b, bgStyle: bg.id }))}
+                              className={`py-2 px-3 rounded-xl font-semibold border text-left transition-all ${
+                                branding.bgStyle === bg.id
+                                  ? 'border-sky-600 bg-sky-50 text-sky-700'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {bg.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {studioTab === 'brand' && (
+                    <>
+                      {/* Ubah Logo & Inisial */}
+                      <div className="space-y-2">
+                        <label className="block font-bold text-slate-800">Logo & Identitas Merek</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            maxLength={3}
+                            value={branding.logoText}
+                            onChange={(e) => setBranding((b) => ({ ...b, logoText: e.target.value.toUpperCase() }))}
+                            placeholder="MB"
+                            className="w-16 px-3 py-2 rounded-xl border border-slate-300 font-bold text-center uppercase"
+                          />
+                          <input
+                            ref={logoInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleLogoUpload}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={() => logoInputRef.current?.click()}
+                            className="flex-1 py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-50 font-semibold text-slate-700"
+                          >
+                            🖼️ Unggah Gambar Logo
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Ubah Judul & Subjudul */}
+                      <div className="space-y-2">
+                        <label className="block font-bold text-slate-800">Judul Publikasi</label>
+                        <input
+                          type="text"
+                          value={branding.title}
+                          onChange={(e) => setBranding((b) => ({ ...b, title: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-sky-500 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block font-bold text-slate-800">Nama Penerbit / Organisasi</label>
+                        <input
+                          type="text"
+                          value={branding.publisher}
+                          onChange={(e) => setBranding((b) => ({ ...b, publisher: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-sky-500 outline-none"
+                        />
+                      </div>
+
+                      {/* Warna Tema & Gaya Ikon */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">Warna Utama</label>
+                          <input
+                            type="color"
+                            value={branding.primaryColor}
+                            onChange={(e) => setBranding((b) => ({ ...b, primaryColor: e.target.value }))}
+                            className="w-full h-9 rounded-xl cursor-pointer border border-slate-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">Gaya Ikon</label>
+                          <select
+                            value={branding.iconStyle}
+                            onChange={(e) => setBranding((b) => ({ ...b, iconStyle: e.target.value }))}
+                            className="w-full h-9 px-2.5 rounded-xl border border-slate-300 bg-white"
+                          >
+                            <option value="rounded">Membulat (Rounded)</option>
+                            <option value="pill">Kapsul (Pill)</option>
+                            <option value="sharp">Tegas (Sharp)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Penomoran Halaman */}
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                        <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                          <span>Tampilkan Penomoran Halaman</span>
+                          <input
+                            type="checkbox"
+                            checked={branding.showPageNumbers}
+                            onChange={(e) => setBranding((b) => ({ ...b, showPageNumbers: e.target.checked }))}
+                            className="w-4 h-4 accent-sky-600"
+                          />
+                        </label>
+                        {branding.showPageNumbers && (
+                          <select
+                            value={branding.pageNumberFormat}
+                            onChange={(e) => setBranding((b) => ({ ...b, pageNumberFormat: e.target.value }))}
+                            className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                          >
+                            <option value="Hal. {n} / {total}">Format: Hal. 1 / 8</option>
+                            <option value="{n} dari {total}">Format: 1 dari 8</option>
+                            <option value="#{n}">Format: #1</option>
+                          </select>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {studioTab === 'widgets' && (
+                    <>
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px]">
+                        Menambahkan widget ke <strong>Halaman {currentPage}</strong> ({currentPageObj?.chapter}).
+                      </div>
+
+                      <form onSubmit={handleAddWidget} className="space-y-2.5">
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">Jenis Widget Interaktif</label>
+                          <select
+                            value={newWidgetType}
+                            onChange={(e) => setNewWidgetType(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                          >
+                            <option value="link">🔗 Tautan Eksternal (Link CTA)</option>
+                            <option value="video">🎬 Pemutar Video (YouTube / MP4)</option>
+                            <option value="audio">🔊 Pemutar Audio / Narasi</option>
+                            <option value="form">📝 Formulir Interaktif / Survei</option>
+                            <option value="embed">🌐 Sematan Web / Peta (Iframe)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">Teks Tombol Widget</label>
+                          <input
+                            type="text"
+                            value={newWidgetLabel}
+                            onChange={(e) => setNewWidgetLabel(e.target.value)}
+                            placeholder="Contoh: Beli Sekarang / Tonton Demo"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">
+                            URL Sumber (Opsional untuk Formulir/Audio)
+                          </label>
+                          <input
+                            type="url"
+                            value={newWidgetUrl}
+                            onChange={(e) => setNewWidgetUrl(e.target.value)}
+                            placeholder="https://..."
+                            className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-[11px]"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">
+                            Posisi Vertikal di Halaman ({newWidgetY}%)
+                          </label>
+                          <input
+                            type="range"
+                            min={15}
+                            max={90}
+                            value={newWidgetY}
+                            onChange={(e) => setNewWidgetY(e.target.value)}
+                            className="w-full accent-sky-600"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          style={{ backgroundColor: branding.primaryColor }}
+                          className="w-full py-2.5 rounded-xl text-white font-bold shadow-sm hover:brightness-110 transition-all"
+                        >
+                          + Pasang Widget di Halaman {currentPage}
+                        </button>
+                      </form>
+
+                      {/* Daftar Widget Aktif di Halaman Ini */}
+                      {(currentPageObj?.widgets || []).length > 0 && (
+                        <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                          <div className="font-bold text-slate-700">Widget di Halaman {currentPage}:</div>
+                          {currentPageObj.widgets.map((w) => (
+                            <div
+                              key={w.id}
+                              className="flex items-center justify-between p-2 rounded-xl bg-slate-100 text-xs"
+                            >
+                              <span className="truncate font-medium">{w.label}</span>
+                              <button
+                                onClick={() => handleRemoveWidget(w.id)}
+                                className="text-rose-600 font-bold px-2 py-0.5 hover:bg-rose-100 rounded-lg"
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </aside>
+            )}
+
+            {/* PANGGUNG BUKU DIGITAL INTERAKTIF */}
+            <main
+              className="relative flex-1 h-full overflow-hidden flex items-center justify-center p-3 sm:p-6 flipbook-stage select-none"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              {/* MODE COVERFLOW 3D (Tampilan Carousel Perspektif) */}
+              {branding.transitionEffect === 'coverflow' ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  {/* Kartu Halaman Sebelumnya di Kiri */}
+                  {currentPage > 1 && (
+                    <div
+                      onClick={handlePrev}
+                      style={{
+                        transform: 'translateX(-58%) scale(0.82) rotateY(28deg)',
+                        width: 'min(78vw, 380px)',
+                        height: 'min(92%, 560px)',
+                      }}
+                      className="hidden sm:block absolute rounded-2xl shadow-xl opacity-65 hover:opacity-85 cursor-pointer transition-all duration-300 overflow-hidden border border-slate-200"
+                    >
+                      <BookPageRenderer
+                        page={pages[currentPage - 2]}
+                        pageNumber={currentPage - 1}
+                        totalPages={pages.length}
+                        branding={branding}
+                        side="single"
+                        onJumpToPage={goToPage}
+                        onTriggerWidget={handleTriggerWidget}
+                      />
+                    </div>
+                  )}
+
+                  {/* Kartu Halaman Aktif di Tengah */}
+                  <div
+                    style={{
+                      transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+                      width: 'min(88vw, 420px)',
+                      height: 'min(96%, 600px)',
+                    }}
+                    className={`relative z-20 rounded-2xl shadow-[0_24px_60px_rgba(2,132,199,0.22)] overflow-hidden border border-slate-200 transition-transform duration-300 ${slideAnimClass}`}
+                  >
+                    <BookPageRenderer
+                      page={pages[currentPage - 1]}
+                      pageNumber={currentPage}
+                      totalPages={pages.length}
+                      branding={branding}
+                      side="single"
+                      onJumpToPage={goToPage}
+                      onTriggerWidget={handleTriggerWidget}
+                    />
+                  </div>
+
+                  {/* Kartu Halaman Berikutnya di Kanan */}
+                  {currentPage < pages.length && (
+                    <div
+                      onClick={handleNext}
+                      style={{
+                        transform: 'translateX(58%) scale(0.82) rotateY(-28deg)',
+                        width: 'min(78vw, 380px)',
+                        height: 'min(92%, 560px)',
+                      }}
+                      className="hidden sm:block absolute rounded-2xl shadow-xl opacity-65 hover:opacity-85 cursor-pointer transition-all duration-300 overflow-hidden border border-slate-200"
+                    >
+                      <BookPageRenderer
+                        page={pages[currentPage]}
+                        pageNumber={currentPage + 1}
+                        totalPages={pages.length}
+                        branding={branding}
+                        side="single"
+                        onJumpToPage={goToPage}
+                        onTriggerWidget={handleTriggerWidget}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* MODE 3D PAGE FLIP & SLIDE (Single Page di HP, 2-Page Spread di Desktop) */
+                <div
+                  className={`book-wrapper relative flex items-center justify-center ${slideAnimClass}`}
+                  style={{
+                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+                    width: spreadPages.isSingle ? 'min(92vw, 430px)' : 'min(94vw, 860px)',
+                    height: 'min(98%, 610px)',
+                  }}
+                >
+                  {spreadPages.isSingle ? (
+                    <div className="relative w-full h-full rounded-2xl shadow-[0_20px_50px_rgba(15,23,42,0.18)] overflow-hidden border border-slate-200/90 bg-white">
+                      <BookPageRenderer
+                        page={spreadPages.single}
+                        pageNumber={currentPage}
+                        totalPages={pages.length}
+                        branding={branding}
+                        side="single"
+                        onJumpToPage={goToPage}
+                        onTriggerWidget={handleTriggerWidget}
+                      />
+                      {/* Zona Tap Kiri/Kanan */}
+                      {zoom === 1 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handlePrev}
+                            disabled={currentPage <= 1}
+                            aria-label="Sebelumnya"
+                            className="absolute inset-y-0 left-0 w-1/5 z-10 cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleNext}
+                            disabled={currentPage >= pages.length}
+                            aria-label="Berikutnya"
+                            className="absolute inset-y-0 right-0 w-1/5 z-10 cursor-pointer"
+                          />
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative w-full h-full grid grid-cols-2 rounded-2xl shadow-[0_24px_60px_rgba(15,23,42,0.2)] overflow-hidden border border-slate-200 bg-white">
+                      <div
+                        className="relative h-full border-r border-slate-200/80 overflow-hidden"
+                        onClick={() => zoom === 1 && handlePrev()}
+                      >
+                        <BookPageRenderer
+                          page={spreadPages.left}
+                          pageNumber={spreadPages.left?.id || currentPage}
+                          totalPages={pages.length}
+                          branding={branding}
+                          side="left"
+                          onJumpToPage={goToPage}
+                          onTriggerWidget={handleTriggerWidget}
+                        />
+                      </div>
+                      <div
+                        className="relative h-full overflow-hidden"
+                        onClick={() => zoom === 1 && handleNext()}
+                      >
+                        <BookPageRenderer
+                          page={spreadPages.right}
+                          pageNumber={spreadPages.right?.id || currentPage + 1}
+                          totalPages={pages.length}
+                          branding={branding}
+                          side="right"
+                          onJumpToPage={goToPage}
+                          onTriggerWidget={handleTriggerWidget}
+                        />
+                      </div>
+                      {/* Garis Lipatan Tengah */}
+                      <div className="pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 w-5 bg-gradient-to-r from-slate-900/10 via-white/40 to-slate-900/10 z-20" />
+                    </div>
+                  )}
+
+                  {/* Lembaran Animasi 3D Page Flip */}
+                  {flipAnim && branding.transitionEffect === 'flip' && (
+                    <div
+                      className={`flip-leaf rounded-2xl shadow-2xl ${
+                        spreadPages.isSingle ? 'single-mode' : 'right-0'
+                      }`}
+                      style={{
+                        transformOrigin: 'left center',
+                        transform:
+                          flipAnim.direction === 'next'
+                            ? flipAnim.started
+                              ? 'rotateY(-180deg)'
+                              : 'rotateY(0deg)'
+                            : flipAnim.started
+                            ? 'rotateY(0deg)'
+                            : 'rotateY(-180deg)',
+                      }}
+                    >
+                      <div className="flip-face rounded-2xl">
+                        <BookPageRenderer
+                          page={flipAnim.frontPage}
+                          pageNumber={flipAnim.frontPage?.id || currentPage}
+                          totalPages={pages.length}
+                          branding={branding}
+                          side="right"
+                          onJumpToPage={() => {}}
+                          onTriggerWidget={() => {}}
+                        />
+                        <div className="absolute inset-0 page-sheen pointer-events-none" />
+                      </div>
+                      <div className="flip-face flip-face-back rounded-2xl">
+                        <BookPageRenderer
+                          page={flipAnim.backPage}
+                          pageNumber={flipAnim.backPage?.id || currentPage}
+                          totalPages={pages.length}
+                          branding={branding}
+                          side="left"
+                          onJumpToPage={() => {}}
+                          onTriggerWidget={() => {}}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Kontrol Zoom Mengambang */}
+              <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 p-1 rounded-xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-md text-slate-700">
+                <button
+                  onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))}
+                  disabled={zoom <= 1}
+                  className="px-2.5 py-1 rounded-lg hover:bg-slate-100 disabled:opacity-35 font-bold"
+                >
+                  −
+                </button>
+                <button
+                  onClick={() => setZoom(1)}
+                  className="px-2 py-1 text-[11px] font-mono font-bold hover:bg-slate-100 rounded-lg"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button
+                  onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.25).toFixed(2)))}
+                  disabled={zoom >= 2.5}
+                  className="px-2.5 py-1 rounded-lg hover:bg-slate-100 disabled:opacity-35 font-bold"
+                >
+                  +
+                </button>
+              </div>
+
+              {/* Notifikasi Toast */}
+              {toast && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-slate-900/90 text-white text-xs font-semibold shadow-lg">
+                  {toast}
+                </div>
+              )}
+            </main>
+          </div>
+
+          {/* ==================================================================
+              FOOTER KONTROL NAVIGASI BAWAH (SCRUBBER + TOMBOL NEXT/PREV)
+          ================================================================== */}
+          <footer className="z-30 shrink-0 px-3 sm:px-6 py-2.5 bg-white/90 backdrop-blur-md border-t border-slate-200/80">
+            <div className="max-w-3xl mx-auto flex items-center gap-3">
+              <button
+                onClick={handlePrev}
+                disabled={currentPage <= 1}
+                className={`px-3 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-35 transition-all shrink-0 ${iconRadiusClass}`}
+              >
+                ← <span className="hidden sm:inline">Sebelumnya</span>
+              </button>
+
+              <input
+                type="range"
+                min={1}
+                max={pages.length}
+                value={currentPage}
+                onChange={(e) => goToPage(parseInt(e.target.value, 10))}
+                className="book-scrubber flex-1"
+                style={{
+                  background: `linear-gradient(to right, ${branding.primaryColor} 0%, ${branding.primaryColor} ${
+                    ((currentPage - 1) / Math.max(1, pages.length - 1)) * 100
+                  }%, #e2e8f0 ${
+                    ((currentPage - 1) / Math.max(1, pages.length - 1)) * 100
+                  }%, #e2e8f0 100%)`,
+                  height: '6px',
+                  borderRadius: '999px',
+                }}
+              />
+
+              <button
+                onClick={() => setIsTocOpen(true)}
+                className={`px-2.5 py-1.5 text-xs font-mono font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0 ${iconRadiusClass}`}
+              >
+                {currentPage} / {pages.length}
+              </button>
+
+              <button
+                onClick={handleNext}
+                disabled={currentPage >= pages.length}
+                style={{ backgroundColor: branding.primaryColor }}
+                className={`px-3.5 py-2 text-xs font-bold text-white disabled:opacity-35 shadow-sm hover:brightness-110 transition-all shrink-0 ${iconRadiusClass}`}
+              >
+                <span className="hidden sm:inline">Berikutnya</span> →
+              </button>
+            </div>
+          </footer>
+
+          {/* ==================================================================
+              DRAWER MINIATUR HALAMAN (DAFTAR ISI)
+          ================================================================== */}
+          {isTocOpen && (
+            <div
+              className="fixed inset-0 z-50 flex justify-start bg-slate-900/50 backdrop-blur-sm"
+              onClick={() => setIsTocOpen(false)}
+            >
+              <div
+                className="animate-pop w-full max-w-sm h-full bg-white shadow-2xl flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900">Semua Halaman ({pages.length})</h3>
+                    <p className="text-[11px] text-slate-500">Ketuk halaman untuk melompat cepat</p>
+                  </div>
+                  <button
+                    onClick={() => setIsTocOpen(false)}
+                    className="p-2 rounded-xl hover:bg-slate-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scroll p-3 grid grid-cols-2 gap-2.5">
+                  {pages.map((p, idx) => {
+                    const num = idx + 1;
+                    return (
+                      <button
+                        key={p.id || num}
+                        onClick={() => {
+                          goToPage(num);
+                          setIsTocOpen(false);
+                        }}
+                        className={`p-2 rounded-xl border text-left transition-all ${
+                          num === currentPage
+                            ? 'border-sky-500 bg-sky-50 ring-2 ring-sky-500/20'
+                            : 'border-slate-200 hover:border-sky-300'
+                        }`}
+                      >
+                        <div className="aspect-[3/4] rounded-lg bg-slate-100 mb-1.5 overflow-hidden flex items-center justify-center relative">
+                          {p.type === 'image' ? (
+                            <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="p-2 text-[10px] font-serif font-bold text-slate-700 line-clamp-3">
+                              {p.title || p.chapter}
+                            </div>
+                          )}
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-slate-900/75 text-white text-[9px] font-mono">
+                            {num}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-semibold text-slate-800 truncate">
+                          {p.chapter || `Halaman ${num}`}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL JALANKAN WIDGET INTERAKTIF */}
+          <WidgetRunnerModal
+            widget={activeWidgetModal}
+            onClose={() => setActiveWidgetModal(null)}
+            branding={branding}
+          />
+
+          {/* MODAL BAGIKAN & KODE SEMAT WEBSITE */}
+          <SharePublishModal
+            isOpen={isShareOpen}
+            onClose={() => setIsShareOpen(false)}
+            currentPage={currentPage}
+            branding={branding}
+            cloudShareUrl={cloudShareUrl}
+            onSaveToCloud={handleSaveToDrive}
+            isSavingCloud={isSavingCloud}
+          />
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<FlipBookStudioApp />);
+  </script>
+</body>
+</html>
